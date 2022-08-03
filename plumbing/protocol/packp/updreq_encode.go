@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/format/pktline"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
+	"github.com/hdya/go-git/v5/plumbing"
+	"github.com/hdya/go-git/v5/plumbing/format/pktline"
+	"github.com/hdya/go-git/v5/plumbing/protocol/packp/capability"
 )
 
 // Encode writes the ReferenceUpdateRequest encoding to the stream.

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/test"
+	"github.com/hdya/go-git/v5/plumbing/transport"
+	"github.com/hdya/go-git/v5/plumbing/transport/test"
 
 	"github.com/gliderlabs/ssh"
 	fixtures "github.com/go-git/go-git-fixtures/v4"

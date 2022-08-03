@@ -10,16 +10,16 @@ import (
 	"strings"
 
 	"github.com/go-git/go-billy/v5/util"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
-	"github.com/go-git/go-git/v5/plumbing/format/index"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/utils/ioutil"
-	"github.com/go-git/go-git/v5/utils/merkletrie"
-	"github.com/go-git/go-git/v5/utils/merkletrie/filesystem"
-	mindex "github.com/go-git/go-git/v5/utils/merkletrie/index"
-	"github.com/go-git/go-git/v5/utils/merkletrie/noder"
+	"github.com/hdya/go-git/v5/plumbing"
+	"github.com/hdya/go-git/v5/plumbing/filemode"
+	"github.com/hdya/go-git/v5/plumbing/format/gitignore"
+	"github.com/hdya/go-git/v5/plumbing/format/index"
+	"github.com/hdya/go-git/v5/plumbing/object"
+	"github.com/hdya/go-git/v5/utils/ioutil"
+	"github.com/hdya/go-git/v5/utils/merkletrie"
+	"github.com/hdya/go-git/v5/utils/merkletrie/filesystem"
+	mindex "github.com/hdya/go-git/v5/utils/merkletrie/index"
+	"github.com/hdya/go-git/v5/utils/merkletrie/noder"
 )
 
 var (
