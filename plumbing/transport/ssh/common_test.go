@@ -93,6 +93,26 @@ func (s *SuiteCommon) TestDefaultSSHConfigWildcard(c *C) {
 	c.Assert(cmd.getHostWithPort(), Equals, "github.com:22")
 }
 
+func (s *SuiteCommon) TestIssue70(c *C) {
+	uploadPack := &UploadPackSuite{}
+	uploadPack.SetUpSuite(c)
+
+	config := &ssh.ClientConfig{
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	r := &runner{
+		config: config,
+	}
+
+	cmd, err := r.Command("command", uploadPack.newEndpoint(c, "endpoint"), uploadPack.EmptyAuth)
+	c.Assert(err, IsNil)
+
+	c.Assert(cmd.(*command).client.Close(), IsNil)
+
+	err = cmd.Close()
+	c.Assert(err, IsNil)
+}
+
 type mockSSHConfig struct {
 	Values map[string]map[string]string
 }

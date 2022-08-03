@@ -46,7 +46,6 @@ type Parser struct {
 	oi         []*objectInfo
 	oiByHash   map[plumbing.Hash]*objectInfo
 	oiByOffset map[int64]*objectInfo
-	hashOffset map[plumbing.Hash]int64
 	checksum   plumbing.Hash
 
 	cache *cache.BufferLRU
@@ -287,6 +286,7 @@ func (p *Parser) resolveDeltas() error {
 				if err := p.resolveObject(stdioutil.Discard, child, content); err != nil {
 					return err
 				}
+				p.resolveExternalRef(child)
 			}
 
 			// Remove the delta from the cache.
@@ -297,6 +297,16 @@ func (p *Parser) resolveDeltas() error {
 	}
 
 	return nil
+}
+
+func (p *Parser) resolveExternalRef(o *objectInfo) {
+	if ref, ok := p.oiByHash[o.SHA1]; ok && ref.ExternalRef {
+		p.oiByHash[o.SHA1] = o
+		o.Children = ref.Children
+		for _, c := range o.Children {
+			c.Parent = o
+		}
+	}
 }
 
 func (p *Parser) get(o *objectInfo, buf *bytes.Buffer) (err error) {

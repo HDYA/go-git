@@ -1,17 +1,18 @@
 package git
 
 import (
+	"os"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-billy/v5/util"
 	fixtures "github.com/go-git/go-git-fixtures/v4"
 	. "gopkg.in/check.v1"
@@ -23,8 +24,7 @@ type BaseSuite struct {
 	fixtures.Suite
 	Repository *Repository
 
-	backupProtocol transport.Transport
-	cache          map[string]*Repository
+	cache map[string]*Repository
 }
 
 func (s *BaseSuite) SetUpSuite(c *C) {
@@ -131,6 +131,35 @@ func (s *BaseSuite) GetLocalRepositoryURL(f *fixtures.Fixture) string {
 	return f.DotGit().Root()
 }
 
+func (s *BaseSuite) TemporalDir() (path string, clean func()) {
+	fs := osfs.New(os.TempDir())
+	path, err := util.TempDir(fs, "", "")
+	if err != nil {
+		panic(err)
+	}
+
+	return fs.Join(fs.Root(), path), func() {
+		util.RemoveAll(fs, path)
+	}
+}
+
+func (s *BaseSuite) TemporalFilesystem() (fs billy.Filesystem, clean func()) {
+	fs = osfs.New(os.TempDir())
+	path, err := util.TempDir(fs, "", "")
+	if err != nil {
+		panic(err)
+	}
+
+	fs, err = fs.Chroot(path)
+	if err != nil {
+		panic(err)
+	}
+
+	return fs, func() {
+		util.RemoveAll(fs, path)
+	}
+}
+
 type SuiteCommon struct{}
 
 var _ = Suite(&SuiteCommon{})
@@ -165,5 +194,13 @@ func AssertReferences(c *C, r *Repository, expected map[string]string) {
 		c.Assert(err, IsNil)
 
 		c.Assert(obtained, DeepEquals, expected)
+	}
+}
+
+func AssertReferencesMissing(c *C, r *Repository, expected []string) {
+	for _, name := range expected {
+		_, err := r.Reference(plumbing.ReferenceName(name), false)
+		c.Assert(err, NotNil)
+		c.Assert(err, Equals, plumbing.ErrReferenceNotFound)
 	}
 }

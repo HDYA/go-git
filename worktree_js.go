@@ -1,4 +1,4 @@
-// +build openbsd dragonfly solaris
+// +build js
 
 package git
 
@@ -12,7 +12,7 @@ import (
 func init() {
 	fillSystemInfo = func(e *index.Entry, sys interface{}) {
 		if os, ok := sys.(*syscall.Stat_t); ok {
-			e.CreatedAt = time.Unix(os.Atim.Unix())
+			e.CreatedAt = time.Unix(int64(os.Ctime), int64(os.CtimeNsec))
 			e.Dev = uint32(os.Dev)
 			e.Inode = uint32(os.Ino)
 			e.GID = os.Gid

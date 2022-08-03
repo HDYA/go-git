@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,7 +61,9 @@ func (s *WorktreeSuite) TestPullCheckout(c *C) {
 }
 
 func (s *WorktreeSuite) TestPullFastForward(c *C) {
-	url := c.MkDir()
+	url, clean := s.TemporalDir()
+	defer clean()
+
 	path := fixtures.Basic().ByTag("worktree").One().Worktree().Root()
 
 	server, err := PlainClone(url, false, &CloneOptions{
@@ -67,7 +71,10 @@ func (s *WorktreeSuite) TestPullFastForward(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	r, err := PlainClone(c.MkDir(), false, &CloneOptions{
+	dir, clean := s.TemporalDir()
+	defer clean()
+
+	r, err := PlainClone(dir, false, &CloneOptions{
 		URL: url,
 	})
 	c.Assert(err, IsNil)
@@ -91,7 +98,9 @@ func (s *WorktreeSuite) TestPullFastForward(c *C) {
 }
 
 func (s *WorktreeSuite) TestPullNonFastForward(c *C) {
-	url := c.MkDir()
+	url, clean := s.TemporalDir()
+	defer clean()
+
 	path := fixtures.Basic().ByTag("worktree").One().Worktree().Root()
 
 	server, err := PlainClone(url, false, &CloneOptions{
@@ -99,7 +108,10 @@ func (s *WorktreeSuite) TestPullNonFastForward(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	r, err := PlainClone(c.MkDir(), false, &CloneOptions{
+	dir, clean := s.TemporalDir()
+	defer clean()
+
+	r, err := PlainClone(dir, false, &CloneOptions{
 		URL: url,
 	})
 	c.Assert(err, IsNil)
@@ -172,7 +184,7 @@ func (s *WorktreeSuite) TestPullInSingleBranch(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(branch.Hash().String(), Equals, "6ecf0ef2c2dffb796033e5a02219af86ec6584e5")
 
-	branch, err = r.Reference("refs/remotes/foo/branch", false)
+	_, err = r.Reference("refs/remotes/foo/branch", false)
 	c.Assert(err, NotNil)
 
 	storage := r.Storer.(*memory.Storage)
@@ -206,9 +218,8 @@ func (s *WorktreeSuite) TestPullProgressWithRecursion(c *C) {
 
 	path := fixtures.ByTag("submodule").One().Worktree().Root()
 
-	dir, err := ioutil.TempDir("", "plain-clone-submodule")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	dir, clean := s.TemporalDir()
+	defer clean()
 
 	r, _ := PlainInit(dir, false)
 	r.CreateRemote(&config.RemoteConfig{
@@ -379,9 +390,8 @@ func (s *WorktreeSuite) TestCheckoutSymlink(c *C) {
 		c.Skip("git doesn't support symlinks by default in windows")
 	}
 
-	dir, err := ioutil.TempDir("", "checkout")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	dir, clean := s.TemporalDir()
+	defer clean()
 
 	r, err := PlainInit(dir, false)
 	c.Assert(err, IsNil)
@@ -408,12 +418,45 @@ func (s *WorktreeSuite) TestCheckoutSymlink(c *C) {
 	c.Assert(err, IsNil)
 }
 
+func (s *WorktreeSuite) TestCheckoutSparse(c *C) {
+	fs := memfs.New()
+	r, err := Clone(memory.NewStorage(), fs, &CloneOptions{
+		URL: s.GetBasicLocalRepositoryURL(),
+	})
+	c.Assert(err, IsNil)
+
+	w, err := r.Worktree()
+	c.Assert(err, IsNil)
+
+	sparseCheckoutDirectories := []string{"go", "json", "php"}
+	c.Assert(w.Checkout(&CheckoutOptions{
+		SparseCheckoutDirectories: sparseCheckoutDirectories,
+	}), IsNil)
+
+	fis, err := fs.ReadDir("/")
+	c.Assert(err, IsNil)
+
+	for _, fi := range fis {
+		c.Assert(fi.IsDir(), Equals, true)
+		var oneOfSparseCheckoutDirs bool
+
+		for _, sparseCheckoutDirectory := range sparseCheckoutDirectories {
+			if strings.HasPrefix(fi.Name(), sparseCheckoutDirectory) {
+				oneOfSparseCheckoutDirs = true
+			}
+		}
+		c.Assert(oneOfSparseCheckoutDirs, Equals, true)
+	}
+}
+
 func (s *WorktreeSuite) TestFilenameNormalization(c *C) {
 	if runtime.GOOS == "windows" {
 		c.Skip("windows paths may contain non utf-8 sequences")
 	}
 
-	url := c.MkDir()
+	url, clean := s.TemporalDir()
+	defer clean()
+
 	path := fixtures.Basic().ByTag("worktree").One().Worktree().Root()
 
 	server, err := PlainClone(url, false, &CloneOptions{
@@ -519,6 +562,63 @@ func (s *WorktreeSuite) TestCheckoutSubmoduleInitialized(c *C) {
 	c.Assert(status.IsClean(), Equals, true)
 }
 
+func (s *WorktreeSuite) TestCheckoutRelativePathSubmoduleInitialized(c *C) {
+	url := "https://github.com/git-fixtures/submodule.git"
+	r := s.NewRepository(fixtures.ByURL(url).One())
+
+	// modify the .gitmodules from original one
+	file, err := r.wt.OpenFile(".gitmodules", os.O_WRONLY|os.O_TRUNC, 0666)
+	c.Assert(err, IsNil)
+
+	n, err := io.WriteString(file, `[submodule "basic"]
+	path = basic
+	url = ../basic.git
+[submodule "itself"]
+	path = itself
+	url = ../submodule.git`)
+	c.Assert(err, IsNil)
+	c.Assert(n, Not(Equals), 0)
+
+	w, err := r.Worktree()
+	c.Assert(err, IsNil)
+
+	w.Add(".gitmodules")
+	w.Commit("test", &CommitOptions{})
+
+	// test submodule path
+	modules, err := w.readGitmodulesFile()
+	c.Assert(err, IsNil)
+
+	c.Assert(modules.Submodules["basic"].URL, Equals, "../basic.git")
+	c.Assert(modules.Submodules["itself"].URL, Equals, "../submodule.git")
+
+	basicSubmodule, err := w.Submodule("basic")
+	c.Assert(err, IsNil)
+	basicRepo, err := basicSubmodule.Repository()
+	c.Assert(err, IsNil)
+	basicRemotes, err := basicRepo.Remotes()
+	c.Assert(err, IsNil)
+	c.Assert(basicRemotes[0].Config().URLs[0], Equals, "https://github.com/git-fixtures/basic.git")
+
+	itselfSubmodule, err := w.Submodule("itself")
+	c.Assert(err, IsNil)
+	itselfRepo, err := itselfSubmodule.Repository()
+	c.Assert(err, IsNil)
+	itselfRemotes, err := itselfRepo.Remotes()
+	c.Assert(err, IsNil)
+	c.Assert(itselfRemotes[0].Config().URLs[0], Equals, "https://github.com/git-fixtures/submodule.git")
+
+	sub, err := w.Submodules()
+	c.Assert(err, IsNil)
+
+	err = sub.Update(&SubmoduleUpdateOptions{Init: true, RecurseSubmodules: DefaultSubmoduleRecursionDepth})
+	c.Assert(err, IsNil)
+
+	status, err := w.Status()
+	c.Assert(err, IsNil)
+	c.Assert(status.IsClean(), Equals, true)
+}
+
 func (s *WorktreeSuite) TestCheckoutIndexMem(c *C) {
 	fs := memfs.New()
 	w := &Worktree{
@@ -547,17 +647,15 @@ func (s *WorktreeSuite) TestCheckoutIndexMem(c *C) {
 }
 
 func (s *WorktreeSuite) TestCheckoutIndexOS(c *C) {
-	dir, err := ioutil.TempDir("", "checkout")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	fs, clean := s.TemporalFilesystem()
+	defer clean()
 
-	fs := osfs.New(filepath.Join(dir, "worktree"))
 	w := &Worktree{
 		r:          s.Repository,
 		Filesystem: fs,
 	}
 
-	err = w.Checkout(&CheckoutOptions{})
+	err := w.Checkout(&CheckoutOptions{})
 	c.Assert(err, IsNil)
 
 	idx, err := s.Repository.Storer.Index()
@@ -972,17 +1070,15 @@ func (s *WorktreeSuite) TestStatusAfterCheckout(c *C) {
 }
 
 func (s *WorktreeSuite) TestStatusModified(c *C) {
-	dir, err := ioutil.TempDir("", "status")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	fs, clean := s.TemporalFilesystem()
+	defer clean()
 
-	fs := osfs.New(filepath.Join(dir, "worktree"))
 	w := &Worktree{
 		r:          s.Repository,
 		Filesystem: fs,
 	}
 
-	err = w.Checkout(&CheckoutOptions{})
+	err := w.Checkout(&CheckoutOptions{})
 	c.Assert(err, IsNil)
 
 	f, err := fs.Create(".gitignore")
@@ -1066,17 +1162,15 @@ func (s *WorktreeSuite) TestStatusUntracked(c *C) {
 }
 
 func (s *WorktreeSuite) TestStatusDeleted(c *C) {
-	dir, err := ioutil.TempDir("", "status")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	fs, clean := s.TemporalFilesystem()
+	defer clean()
 
-	fs := osfs.New(filepath.Join(dir, "worktree"))
 	w := &Worktree{
 		r:          s.Repository,
 		Filesystem: fs,
 	}
 
-	err = w.Checkout(&CheckoutOptions{})
+	err := w.Checkout(&CheckoutOptions{})
 	c.Assert(err, IsNil)
 
 	err = fs.Remove(".gitignore")
@@ -1306,9 +1400,8 @@ func (s *WorktreeSuite) TestAddRemoved(c *C) {
 }
 
 func (s *WorktreeSuite) TestAddSymlink(c *C) {
-	dir, err := ioutil.TempDir("", "checkout")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	dir, clean := s.TemporalDir()
+	defer clean()
 
 	r, err := PlainInit(dir, false)
 	c.Assert(err, IsNil)
@@ -1769,7 +1862,39 @@ func (s *WorktreeSuite) TestClean(c *C) {
 	// An empty dir should be deleted, as well.
 	_, err = fs.Lstat("pkgA")
 	c.Assert(err, ErrorMatches, ".*(no such file or directory.*|.*file does not exist)*.")
+}
 
+func (s *WorktreeSuite) TestCleanBare(c *C) {
+	storer := memory.NewStorage()
+
+	r, err := Init(storer, nil)
+	c.Assert(err, IsNil)
+	c.Assert(r, NotNil)
+
+	wtfs := memfs.New()
+
+	err = wtfs.MkdirAll("worktree", os.ModePerm)
+	c.Assert(err, IsNil)
+
+	wtfs, err = wtfs.Chroot("worktree")
+	c.Assert(err, IsNil)
+
+	r, err = Open(storer, wtfs)
+	c.Assert(err, IsNil)
+
+	wt, err := r.Worktree()
+	c.Assert(err, IsNil)
+
+	_, err = wt.Filesystem.Lstat(".")
+	c.Assert(err, IsNil)
+
+	// Clean with Dir: true.
+	err = wt.Clean(&CleanOptions{Dir: true})
+	c.Assert(err, IsNil)
+
+	// Root worktree directory must remain after cleaning
+	_, err = wt.Filesystem.Lstat(".")
+	c.Assert(err, IsNil)
 }
 
 func (s *WorktreeSuite) TestAlternatesRepo(c *C) {
@@ -1989,7 +2114,11 @@ func (s *WorktreeSuite) TestGrep(c *C) {
 	}
 
 	path := fixtures.Basic().ByTag("worktree").One().Worktree().Root()
-	server, err := PlainClone(c.MkDir(), false, &CloneOptions{
+
+	dir, clean := s.TemporalDir()
+	defer clean()
+
+	server, err := PlainClone(dir, false, &CloneOptions{
 		URL: path,
 	})
 	c.Assert(err, IsNil)
@@ -2038,9 +2167,8 @@ func (s *WorktreeSuite) TestGrep(c *C) {
 }
 
 func (s *WorktreeSuite) TestAddAndCommit(c *C) {
-	dir, err := ioutil.TempDir("", "plain-repo")
-	c.Assert(err, IsNil)
-	defer os.RemoveAll(dir)
+	dir, clean := s.TemporalDir()
+	defer clean()
 
 	repo, err := PlainInit(dir, false)
 	c.Assert(err, IsNil)
